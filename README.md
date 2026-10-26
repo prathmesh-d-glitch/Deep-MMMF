@@ -34,19 +34,44 @@ For full theoretical analysis, architecture diagrams, and mathematical formulati
 
 ## 🏗️ Architecture Overview
 
-```
-[User ID i] ---> Independent Embeddings U^(1..7) ---> [Psi_1 + Res] ---> ~U^(1..7) --+
-                                                                                       |--> Aspect Dot Products s_ij^(1..7)
-[Item ID j] ---> Independent Embeddings V^(1..7) ---> [Psi_2 + Res] ---> ~V^(1..7) --+           |
-                                                                                                 v
-[Coupled Thresholds] Theta_{i,r}^(c) = E_{i,r}^(base) + C_{c,r}^(crit) ---> [Psi_3] ---> Criteria Smooth Hinge Loss
-                                                                                                 |
-[Dynamic Attention] alpha_{ij}^(c) = Softmax(v^T tanh(W z)) -------------------------------------+
-                                                                                                 v
-[Ranking Aggregator MLP] ---> Continuous Score S_hat_{ij} ---> [BPR Ranking Loss]
-                                     |
-                                     v
-                        Coupled Overall Thresholds ---> Overall Smooth Hinge Loss & Discrete Ratings
+```mermaid
+flowchart TD
+    subgraph Inputs ["Input Identifiers"]
+        UID["User ID (i)"]
+        IID["Item ID (j)"]
+    end
+
+    subgraph UserStream ["User Latent Path"]
+        UID --> UE["Independent Embeddings U^(1..7)"]
+        UE --> UTR["Psi_1 (MLP + Residual)"]
+        UTR --> Utilde["Transformed Latent Vectors ~U^(1..7)"]
+    end
+
+    subgraph ItemStream ["Item Latent Path"]
+        IID --> VE["Independent Embeddings V^(1..7)"]
+        VE --> VTR["Psi_2 (MLP + Residual)"]
+        VTR --> Vtilde["Transformed Latent Vectors ~V^(1..7)"]
+    end
+
+    Utilde & Vtilde --> Dot["Aspect Dot Products s_ij^(1..7)"]
+
+    subgraph AspectHinge ["Criteria Margin Separation"]
+        TH_CRIT["Coupled Thresholds:<br/>Theta_{i,r}^(c) = E_{i,r}^(base) + C_{c,r}^(crit)"] --> PSI3["Psi_3 Transform"]
+        PSI3 & Dot --> L_CRIT["Criteria Smooth Hinge Loss"]
+    end
+
+    subgraph Aggregation ["Attention & Ranking Aggregation"]
+        Dot --> ATT["Dynamic Attention:<br/>alpha_{ij}^(c) = Softmax(v^T tanh(W z))"]
+        ATT --> AGG["Ranking Aggregator MLP"]
+        AGG --> SHAT["Continuous Score S_hat_{ij}"]
+    end
+
+    subgraph Objectives ["Dual Optimization & Inference"]
+        SHAT --> BPR["BPR Pairwise Ranking Loss"]
+        SHAT --> OV_THRESH["Coupled Overall Thresholds"]
+        OV_THRESH --> L_OVERALL["Overall Smooth Hinge Loss"]
+        OV_THRESH --> RATINGS["Discrete Rating Prediction"]
+    end
 ```
 
 ---

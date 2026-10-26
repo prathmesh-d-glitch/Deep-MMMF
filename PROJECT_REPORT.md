@@ -84,21 +84,31 @@ Classical Maximum Margin Matrix Factorization represents users as $U_i \in \math
 The interaction score is:
 $$\tilde{s}_{ij} = \tilde{U}_i \cdot \tilde{V}_j^T = \sum_{d=1}^k \tilde{U}_{i,d} \tilde{V}_{j,d}$$
 
-```
-                +-----------------------+
-  User ID i --->| User Embedding U_i    |---> [Psi_1 + Res] ---> U_tilde_i --+
-                +-----------------------+                                     |
-                                                                              |--> Dot Product (s_tilde_ij)
-                +-----------------------+                                     |
-  Item ID j --->| Item Embedding V_j    |---> [Psi_2 + Res] ---> V_tilde_j --+
-                +-----------------------+                                     |
-                                                                              v
-                +-----------------------+                               [Comparison]
-  User ID i --->| Threshold Embeddings  |---> [Psi_3 + Res] ---> Project ---> Theta_tilde_ir
-  (R-1 levels)  | Theta_{i,r}           |                        to Scalar    |
-                +-----------------------+                                     v
-                                                                       Ordinal Bin Count
-                                                                       Rating = sum(s > Theta) + 1
+```mermaid
+flowchart TD
+    subgraph Users ["User Stream"]
+        UID["User ID (i)"] --> UE["User Embedding U_i"]
+        UE --> PSI1["Psi_1 MLP + Residual"]
+        PSI1 --> UTILDE["Transformed Latent Vector ~U_i"]
+    end
+
+    subgraph Items ["Item Stream"]
+        IID["Item ID (j)"] --> VE["Item Embedding V_j"]
+        VE --> PSI2["Psi_2 MLP + Residual"]
+        PSI2 --> VTILDE["Transformed Latent Vector ~V_j"]
+    end
+
+    subgraph Thresholds ["Threshold Stream"]
+        UID_TH["User ID (i)<br/>(R-1 levels)"] --> TE["Threshold Embeddings Theta_{i,r}"]
+        TE --> PSI3["Psi_3 MLP + Residual"]
+        PSI3 --> PROJ["Scalar Projection"]
+        PROJ --> TH_TILDE["Scalar Thresholds ~Theta_{i,r}"]
+    end
+
+    UTILDE & VTILDE --> DOT["Dot Product Interaction ~s_ij"]
+
+    DOT & TH_TILDE --> COMP["Ordinal Comparison:<br/>~s_ij vs ~Theta_{i,r}"]
+    COMP --> RATING["Predicted Ordinal Rating:<br/>sum(~s_ij > ~Theta_{i,r}) + 1"]
 ```
 
 ### 3.2 Nonlinear Deep Transformation Networks ($\Psi$)
@@ -370,50 +380,46 @@ pip install -r requirements.txt
 
 To bridge the gap between aspect-level granular feedback and ordinal matrix factorization, we extended Deep MMMF into **Multi-Criteria Deep MMMF (MC-Deep MMMF)**. Rather than treating recommendation solely as a single overall rating prediction task, MC-Deep MMMF independently factorizes each of the $C = 7$ criteria matrices with coupled threshold embeddings, passing transformed criterion vectors to a final attention-based ranking aggregator.
 
-```
-  ========================================================================================
-                          MULTI-CRITERIA DEEP MMMF ARCHITECTURE
-  ========================================================================================
+```mermaid
+flowchart TD
+    subgraph Inputs ["Input Identifiers"]
+        UID["User ID (i)"]
+        IID["Item ID (j)"]
+    end
 
-  [User ID i]                                              [Item ID j]
-       |                                                        |
-       +-------------------+--------------...                   +-------------------+--------------...
-       |                   |                                    |                   |
-       v                   v                                    v                   v
-   [U^(1) Embed]       [U^(7) Embed]                        [V^(1) Embed]       [V^(7) Embed]
-       |                   |                                    |                   |
-   [Psi_1^(1)]         [Psi_1^(7)]                          [Psi_2^(1)]         [Psi_2^(7)]
-       |                   |                                    |                   |
-       v                   v                                    v                   v
-   U_tilde_i^(1)       U_tilde_i^(7)                        V_tilde_j^(1)       V_tilde_j^(7)
-       \                   /                                    /                   /
-        \                 /                                    /                   /
-         +---------------+------------------------------------+                   /
-         |               |                                                        /
-         v               v                                                       /
-    [Dot Product]   [Dot Product]                                               /
-     s_ij^(1)        s_ij^(7)                                                  /
-         |               |                                                    /
-         +---------------+---------------------------------------------------+
-         |
-         v
-   [Transformed Criterion Vectors Projectors]
-     z_ij^(1), z_ij^(2), ..., z_ij^(7)  where z_ij^(c) = g_c(U_tilde^(c) * V_tilde^(c), s_ij^(c))
-         |
-         +---------------------------------------+
-         |                                       |
-         v                                       v
-   [Multi-Criteria Dynamic Attention]       [7 Criteria Smooth Hinge Loss]
-     alpha_ij = Softmax(w^T tanh(W z_c))      against Coupled Thresholds:
-     Context c_ij = Sum alpha_c z_c           Theta_tilde_{i, r}^(c) = Linear(Psi_3(E_{i,r}^base + C_{c,r}^crit))
-         |
-         v
-   [Deep Ranking Aggregator MLP]
-         |
-         +---> Continuous Ranking Score S_hat_{ij} ---> [BPR Pairwise Ranking Loss]
-         |
-         +---> Overall Ordinal Prediction Hat{Y}_{ij} ---> [Overall Smooth Hinge Loss]
-               (evaluated against Coupled Overall Thresholds Theta_tilde_{i,r}^(overall))
+    subgraph Factorization ["Independent Factorization across Criteria (1..7)"]
+        UID --> U_EMB["Criterion User Embeddings U^(1..7)"]
+        IID --> V_EMB["Criterion Item Embeddings V^(1..7)"]
+        U_EMB --> PSI1["Psi_1^(1..7) MLPs + Residual"]
+        V_EMB --> PSI2["Psi_2^(1..7) MLPs + Residual"]
+        PSI1 --> U_TILDE["~U_i^(1..7)"]
+        PSI2 --> V_TILDE["~V_j^(1..7)"]
+        U_TILDE & V_TILDE --> DOT["Aspect Dot Products s_ij^(1..7)"]
+    end
+
+    subgraph FeatureProj ["Transformed Criterion Vector Projectors"]
+        U_TILDE & V_TILDE & DOT --> PROJ["Projectors g_c(~U^(c) * ~V^(c), s_ij^(c))<br/>Yields z_ij^(1..7)"]
+    end
+
+    subgraph CriteriaHinge ["Criteria Margin Separation"]
+        COUPLED_TH["Coupled Thresholds:<br/>E_{i,r}^(base) + C_{c,r}^(crit)"] --> PSI3["Psi_3 Transform & Projection Layer"]
+        PSI3 --> TH_CRIT["~Theta_{i,r}^(c)"]
+        DOT & TH_CRIT --> L_CRIT["7 Criteria Smooth Hinge Loss"]
+    end
+
+    subgraph AttentionAggregator ["Dynamic Attention & Ranking Aggregator"]
+        PROJ --> ATT["Multi-Criteria Dynamic Attention:<br/>alpha_ij^(c) = Softmax(w^T tanh(W z_c))"]
+        ATT & PROJ --> CONTEXT["Attended Context Vector:<br/>c_ij = Sum alpha_ij^(c) z_ij^(c)"]
+        CONTEXT & PROJ & DOT --> AGG_MLP["Deep Ranking Aggregator MLP"]
+        AGG_MLP --> S_HAT["Continuous Ranking Score S_hat_{ij}"]
+    end
+
+    subgraph DualObjectives ["Joint Multi-Task Objectives"]
+        S_HAT --> BPR["BPR Pairwise Ranking Loss"]
+        S_HAT --> COMP_OV["Coupled Overall Thresholds:<br/>~Theta_{i,r}^(overall)"]
+        COMP_OV --> L_OVERALL["Overall Smooth Hinge Loss"]
+        COMP_OV --> Y_HAT["Overall Ordinal Rating Hat{Y}_{ij}"]
+    end
 ```
 
 #### 1. Independent Factorization per Criterion

@@ -80,18 +80,17 @@ Previously, the project relied on the architecture proposed by Nassar, Jafar, & 
 
 The baseline model decomposed recommendation into two separate stages:
 
-```
-[User ID i] ---> [User Embedding (64-d)] ---+
-                                            +---> Concatenate (128-d) ---> [Criteria Ratings DNN] ---> Predicted [r1, ..., r7]
-[Item ID j] ---> [Item Embedding (64-d)] ---+                               (128->64->32->16->8->7)               |
-                                                                                                                   v
-                                                                                                        [Z-Score Normalization]
-                                                                                                                   v
-                                                                             [Overall Rating DNN] <--- Normalized [z1, ..., z7]
-                                                                             (7->64->32->16->8->1)
-                                                                                       |
-                                                                                       v
-                                                                             Predicted Overall Rating r0
+```mermaid
+flowchart LR
+    UID["User ID (i)"] --> U_EMB["User Embedding (64-d)"]
+    IID["Item ID (j)"] --> I_EMB["Item Embedding (64-d)"]
+    U_EMB & I_EMB --> CONCAT["Concatenate (128-d)"]
+    CONCAT --> CRIT_DNN["Criteria Ratings DNN<br/>(128->64->32->16->8->7)"]
+    CRIT_DNN --> PRED_CRIT["Predicted Criteria Ratings [r1, ..., r7]"]
+    PRED_CRIT --> Z_NORM["Z-Score Normalization"]
+    Z_NORM --> NORM_CRIT["Normalized Criteria [z1, ..., z7]"]
+    NORM_CRIT --> OV_DNN["Overall Rating DNN<br/>(7->64->32->16->8->1)"]
+    OV_DNN --> PRED_OV["Predicted Overall Rating r0"]
 ```
 
 1. **Stage 1 (Criteria Ratings DNN)**:
@@ -136,32 +135,25 @@ The baseline simply concatenated user and item embeddings into a single vector. 
 
 To overcome every limitation of the baseline, we conducted a systematic literature synthesis, identifying three seminal papers that addressed complementary aspects of the problem.
 
-```
-+---------------------------------------------------------------------------------------------------+
-|                                  THE THREE FOUNDATIONAL PAPERS                                    |
-+------------------------------------+----------------------------------+---------------------------+
-|  PAPER 1: Multi-Criteria Aspect    |  PAPER 2: Deep Ordinal Factor-   |  PAPER 3: Pairwise Margin |
-|  Domain Modeling                   |  ization & Hinge Margins         |  Ranking                  |
-|  (Nassar et al., 2020)             |  (Kumar et al., 2026)            |  (Rendle et al., 2009)    |
-+------------------------------------+----------------------------------+---------------------------+
-| - TripAdvisor 7 criteria aspects   | - Deep MMMF formulation          | - BPR pairwise ranking    |
-| - Fine-grained user preference     | - Smooth hinge loss h(z)         | - Relative preference     |
-| - Multi-aspect aggregation         | - Learnable thresholds Theta_ir  |   optimization            |
-| - Baseline empirical benchmark     | - Fixed latent dimension k=100   | - Top-K ranking discri-   |
-|                                    | - Weak & Strong generalization   |   mination                |
-+------------------------------------+----------------------------------+---------------------------+
-                                                  |
-                                                  v
-+---------------------------------------------------------------------------------------------------+
-|                         OUR SYNTHESIS: MULTI-CRITERIA DEEP MMMF (MC-DEEP MMMF)                    |
-+---------------------------------------------------------------------------------------------------+
-| 1. Independent Latent Factorization across all 7 criteria matrices (Aspect Isolation)             |
-| 2. Deep Residual Transformation Networks Psi_1, Psi_2, Psi_3 (Preserving Factor Dimension k)     |
-| 3. Coupled User-Criteria Threshold Embeddings: Shared Stringency + Aspect Calibration Offset      |
-| 4. Dynamic Multi-Criteria Attention Aggregator (Weighted Aspect Pooling)                          |
-| 5. Multi-Objective Joint Objective: Multi-Threshold Smooth Hinge Loss + Rating-Weighted BPR       |
-| 6. Dual Inference Engine: Discretized Ratings for MAE vs. Continuous Scoring for Ranking          |
-+---------------------------------------------------------------------------------------------------+
+```mermaid
+flowchart TD
+    subgraph P1 ["PAPER 1: Multi-Criteria Aspect Domain Modeling<br/>(Nassar et al., 2020)"]
+        P1_D["• TripAdvisor 7 criteria aspects<br/>• Fine-grained user preference<br/>• Multi-aspect aggregation<br/>• Baseline empirical benchmark"]
+    end
+
+    subgraph P2 ["PAPER 2: Deep Ordinal Factorization & Hinge Margins<br/>(Kumar et al., 2026)"]
+        P2_D["• Deep MMMF formulation<br/>• Smooth hinge loss h(z)<br/>• Learnable thresholds Theta_ir<br/>• Fixed latent dimension k=100<br/>• Weak & Strong generalization"]
+    end
+
+    subgraph P3 ["PAPER 3: Pairwise Margin Ranking<br/>(Rendle et al., 2009)"]
+        P3_D["• BPR pairwise ranking<br/>• Relative preference optimization<br/>• Top-K ranking discrimination"]
+    end
+
+    P1_D & P2_D & P3_D --> SYNTHESIS
+
+    subgraph SYNTHESIS ["OUR SYNTHESIS: MULTI-CRITERIA DEEP MMMF (MC-DEEP MMMF)"]
+        S1["1. Independent Latent Factorization across all 7 criteria matrices (Aspect Isolation)<br/>2. Deep Residual Transformation Networks Psi_1, Psi_2, Psi_3 (Preserving Factor Dimension k)<br/>3. Coupled User-Criteria Threshold Embeddings: Shared Stringency + Aspect Calibration Offset<br/>4. Dynamic Multi-Criteria Attention Aggregator (Weighted Aspect Pooling)<br/>5. Multi-Objective Joint Objective: Multi-Threshold Smooth Hinge Loss + Rating-Weighted BPR<br/>6. Dual Inference Engine: Discretized Ratings for MAE vs. Continuous Scoring for Ranking"]
+    end
 ```
 
 ---
@@ -200,20 +192,12 @@ To overcome every limitation of the baseline, we conducted a systematic literatu
 
 We synthesized these three distinct methodologies through four clear evolutionary stages:
 
-```
-[Evolution 1: Nassar et al.]  --> 2-Stage Multi-Criteria Regression DNN (MAE = 0.7552, MAP = 0.4643)
-                                          |
-                                          | [Replace Regression with Ordinal Hyperplanes]
-                                          v
-[Evolution 2: Kumar et al.]   --> Single Deep MMMF with Smooth Hinge Loss (MAE = 0.4685, MAP = 0.6913)
-                                          |
-                                          | [Add Pairwise BPR + Continuous Scoring Engine]
-                                          v
-[Evolution 3: Rendle et al.]  --> Single Deep MMMF + BPR + Tie-Breaking Dual Inference
-                                          |
-                                          | [Extend to 7 Criteria Matrices + Coupled Thresholds + Attention]
-                                          v
-[Evolution 4: MC-Deep MMMF]   --> Multi-Criteria Deep MMMF (Ours) (MAE = 0.3600, MAP = 0.7214)
+```mermaid
+flowchart TD
+    E1["<b>Evolution 1 (Nassar et al.)</b><br/>2-Stage Multi-Criteria Regression DNN<br/>MAE = 0.7552 | MAP = 0.4643"]
+    E1 -->|"Replace Regression with Ordinal Hyperplanes"| E2["<b>Evolution 2 (Kumar et al.)</b><br/>Single Deep MMMF with Smooth Hinge Loss<br/>MAE = 0.4685 | MAP = 0.6913"]
+    E2 -->|"Add Pairwise BPR + Continuous Scoring Engine"| E3["<b>Evolution 3 (Rendle et al.)</b><br/>Single Deep MMMF + BPR + Tie-Breaking Dual Inference"]
+    E3 -->|"Extend to 7 Criteria Matrices + Coupled Thresholds + Attention"| E4["<b>Evolution 4 (MC-Deep MMMF - Ours)</b><br/>Multi-Criteria Deep MMMF<br/>MAE = 0.3600 | MAP = 0.7214"]
 ```
 
 1. **Aspect Isolation**: Rather than concatenating embeddings as in Nassar et al., we maintain **7 independent factorization manifolds**, allowing each aspect (e.g., Cleanliness vs. Value) to form its own geometric subspace without interference.
@@ -229,84 +213,53 @@ We synthesized these three distinct methodologies through four clear evolutionar
 
 Below is the complete end-to-end data flow and architectural pipeline of the implemented Multi-Criteria Deep MMMF system:
 
-```
-======================================================================================================================
-                                       END-TO-END SYSTEM ARCHITECTURE (MC-DEEP MMMF)
-======================================================================================================================
+```mermaid
+flowchart TD
+    subgraph Inputs ["Input Identifiers"]
+        UID["User ID (i)"]
+        IID["Item ID (j)"]
+    end
 
-  [User ID: i]                                                                     [Item ID: j]
-       |                                                                                |
-       +----------------------------+-----------------------...                         +----------------------------+-----------------------...
-       | (Criterion 1: Value)       | (Criterion 7: Biz)                                | (Criterion 1: Value)       | (Criterion 7: Biz)
-       v                            v                                                   v                            v
-  [U_i^(1) in R^k]             [U_i^(7) in R^k]                                    [V_j^(1) in R^k]             [V_j^(7) in R^k]
-       |                            |                                                   |                            |
-  [Embedding Dropout: p=0.2]   [Embedding Dropout: p=0.2]                          [Embedding Dropout: p=0.2]   [Embedding Dropout: p=0.2]
-       |                            |                                                   |                            |
-  [Psi_1^(1) + Residual]       [Psi_1^(7) + Residual]                              [Psi_2^(1) + Residual]       [Psi_2^(7) + Residual]
-  (k -> 128 -> 64 -> k)        (k -> 128 -> 64 -> k)                               (k -> 128 -> 64 -> k)        (k -> 128 -> 64 -> k)
-       |                            |                                                   |                            |
-       v                            v                                                   v                            v
-  ~U_i^(1) in R^k              ~U_i^(7) in R^k                                     ~V_j^(1) in R^k              ~V_j^(7) in R^k
-       |                            |                                                   |                            |
-       +----------------------------|-----------------------+                           |                            |
-       |                            |                       |                           |                            |
-       |                            +-----------------------|---------------------------+                            |
-       |                                                    |                                                        |
-       |   +------------------------------------------------+                                                        |
-       |   |                                                                                                         |
-       v   v                                                                                                         v
-   [Dot Product]                                                                                                [Dot Product]
-    s_ij^(1) = ~U_i^(1) . ~V_j^(1)                                                                               s_ij^(7) = ~U_i^(7) . ~V_j^(7)
-       |                                                                                                             |
-       +----------------------------+                                                                                |
-       |                            |                                                                                |
-       v                            v                                                                                v
-  [Element-wise Product]        [Scalar Score]                                                                  [Projector 7]
-  ~U_i^(1) (*) ~V_j^(1)            s_ij^(1)                                                                          |
-       |                            |                                                                                v
-       +-------------+--------------+                                                                           z_ij^(7) in R^d_c
-                     |
-                     v
-          [Criterion Projector 1]
-          Linear(k+1 -> d_c) + LeakyReLU
-                     |
-                     v
-               z_ij^(1) in R^d_c
-                     |
-                     +---------------------------------------+
-                     |                                       |
-                     v                                       v
-         [Multi-Criteria Attention]              [Coupled Threshold Embeddings]
-          alpha_ij^(c) = Softmax(v^T tanh(W z))   Theta_{i,r}^(c) = E_{i,r}^(base) + C_{c,r}^(crit)
-                     |                                       |
-                     v                                       v
-         [Attended Context Vector]               [Psi_3 Transform + Projection Layer]
-          c_ij = Sum alpha_ij^(c) z_ij^(c)        ~Theta_{i,r}^(c) in R^{R-1}
-                     |                                       |
-                     +-------------------+                   v
-                     |                   |        [Criteria Smooth Hinge Loss]
-                     v                   |         L_crit = Sum h(T * (~Theta - s))
-         [Ranking Aggregator MLP]        |
-         [c_ij, z_ij^(1..7), s_ij^(1..7)]|
-                     |                   |
-                     v                   |
-           Continuous Aggregated         |
-           Score S_hat_{ij} in R         |
-                     |                   |
-         +-----------+-----------+       |
-         |                       |       |
-         v                       v       v
-   [BPR Pairwise           [Coupled Overall Thresholds]
-    Ranking Loss]          ~Theta_{i,r}^(overall) in R^{R-1}
-   -ln sigma(S+ - S-)            |
-                                 v
-                           [Overall Smooth Hinge Loss]
-                            L_overall = Sum h(T * (~Theta - S_hat))
-                                 |
-                                 v
-                     [Ordinal Rating Prediction]
-                      r_hat_{ij} = 1 + Sum I(S_hat_{ij} > ~Theta_{i,r}^(overall))
+    subgraph UserAspects ["User Latent Aspect Encodings (Criteria 1..7)"]
+        UID --> U_EMB["U_i^(1..7) in R^k"]
+        U_EMB --> U_DROP["Embedding Dropout (p=0.2)"]
+        U_DROP --> PSI1["Psi_1^(1..7) MLPs + Residual<br/>(k -> 128 -> 64 -> k)"]
+        PSI1 --> U_TILDE["~U_i^(1..7) in R^k"]
+    end
+
+    subgraph ItemAspects ["Item Latent Aspect Encodings (Criteria 1..7)"]
+        IID --> V_EMB["V_j^(1..7) in R^k"]
+        V_EMB --> V_DROP["Embedding Dropout (p=0.2)"]
+        V_DROP --> PSI2["Psi_2^(1..7) MLPs + Residual<br/>(k -> 128 -> 64 -> k)"]
+        PSI2 --> V_TILDE["~V_j^(1..7) in R^k"]
+    end
+
+    U_TILDE & V_TILDE --> DOT["Aspect Dot Products:<br/>s_ij^(c) = ~U_i^(c) . ~V_j^(c)"]
+    U_TILDE & V_TILDE --> EW_PROD["Element-wise Products:<br/>~U_i^(c) * ~V_j^(c)"]
+
+    subgraph AspectProjectors ["Criterion Projectors (1..7)"]
+        EW_PROD & DOT --> PROJ["Linear(k+1 -> d_c) + LeakyReLU<br/>Yields z_ij^(c) in R^d_c"]
+    end
+
+    subgraph CriteriaHingeLoss ["Criteria Smooth Hinge Loss"]
+        TH_COUPLED["Coupled Thresholds:<br/>Theta_{i,r}^(c) = E_{i,r}^(base) + C_{c,r}^(crit)"] --> PSI3["Psi_3 Transform + Linear Projection"]
+        PSI3 --> TH_TILDE["~Theta_{i,r}^(c) in R^(R-1)"]
+        DOT & TH_TILDE --> L_CRIT["Criteria Smooth Hinge Loss:<br/>L_crit = Sum h(T * (~Theta - s))"]
+    end
+
+    subgraph AttentionAggregator ["Dynamic Attention & Ranking Aggregator"]
+        PROJ --> ATT["Multi-Criteria Attention:<br/>alpha_ij^(c) = Softmax(v^T tanh(W z))"]
+        ATT & PROJ --> CONTEXT["Attended Context Vector:<br/>c_ij = Sum alpha_ij^(c) z_ij^(c)"]
+        CONTEXT & PROJ & DOT --> AGG_MLP["Ranking Aggregator MLP<br/>[c_ij, z_ij^(1..7), s_ij^(1..7)]"]
+        AGG_MLP --> S_HAT["Continuous Aggregated Score S_hat_{ij} in R"]
+    end
+
+    subgraph DualObjectives ["Dual Objective Optimization & Predictions"]
+        S_HAT --> BPR["BPR Pairwise Ranking Loss:<br/>-ln sigma(S+ - S-)"]
+        S_HAT --> OV_THRESH["Coupled Overall Thresholds:<br/>~Theta_{i,r}^(overall) in R^(R-1)"]
+        OV_THRESH --> L_OVERALL["Overall Smooth Hinge Loss:<br/>L_overall = Sum h(T * (~Theta - S_hat))"]
+        OV_THRESH --> RATINGS["Ordinal Rating Prediction:<br/>r_hat_{ij} = 1 + Sum I(S_hat_{ij} > ~Theta_{i,r}^(overall))"]
+    end
 ```
 
 ---
@@ -414,23 +367,16 @@ $$\frac{\lambda}{2} \|\mathcal{W}\|_F^2 = \frac{\lambda}{2} \sum_{\mathbf{w} \in
 
 A pivotal innovation of this project is the **Dual Inference Engine**, which formally separates rating prediction from item ranking:
 
-```
-                          Model Outputs
-                               |
-            +------------------+------------------+
-            |                                     |
-            v                                     v
-  Discrete Rating Inference             Continuous Ranking Inference
-  predict_ratings(user, item)           predict_scores(user, item)
-            |                                     |
-            v                                     v
-  Count Thresholds Exceeded:            Extract Continuous Inner Product /
-  r_hat = 1 + Sum I(s > ~Theta_r)       Aggregated Latent Score: S_hat in R
-            |                                     |
-            v                                     v
-  Evaluated Against Ground Truth:       Sort Items in Descending Order:
-  MAE and NMAE Calculations             MAP, MRR, F1, F2, FCP Calculations
-  (Strict Absolute Star Error)          (No Ties! High Ranking Fidelity)
+```mermaid
+flowchart TD
+    ROOT["Model Outputs"] --> D_PATH["Discrete Rating Inference<br/><b>predict_ratings(user, item)</b>"]
+    ROOT --> C_PATH["Continuous Ranking Inference<br/><b>predict_scores(user, item)</b>"]
+
+    D_PATH --> D_COUNT["Count Thresholds Exceeded:<br/>r_hat = 1 + Sum I(s > ~Theta_r)"]
+    C_PATH --> C_SCORE["Extract Continuous Inner Product /<br/>Aggregated Latent Score: S_hat in R"]
+
+    D_COUNT --> D_EVAL["Evaluated Against Ground Truth:<br/><b>MAE and NMAE Calculations</b><br/>(Strict Absolute Star Error)"]
+    C_SCORE --> C_SORT["Sort Items in Descending Order:<br/><b>MAP, MRR, F1, F2, FCP Calculations</b><br/>(No Ties! High Ranking Fidelity)"]
 ```
 
 1. **For Rating Accuracy (MAE, NMAE)**:
@@ -683,20 +629,13 @@ While our model achieved gains on MAE (-52.33%) and MAP (+55.37%), the baseline 
 
 The codebase supports both generalization paradigms from Kumar et al. (2026):
 
-```
-                        GENERALIZATION PARADIGMS
-                                   |
-            +----------------------+----------------------+
-            |                                             |
-            v                                             v
-  Weak Generalization                           Strong Generalization
-  (Transductive Matrix Completion)              (Inductive Cold-Start Adaptation)
-            |                                             |
-  - All users present in training set           - Subset of users (10%) completely held out
-  - Random 20% ratings held out for test        - Phase 1: Train base model on seen users
-  - Evaluates standard matrix completion        - Phase 2: FREEZE item representations (W_V, Psi_2)
-  - Result: MAE = 0.3600, MAP = 0.7214          - Phase 3: Optimize only new user parameters (W_U, Psi_1, Theta)
-                                                - Result: Fast convergence, zero item drift
+```mermaid
+flowchart TD
+    ROOT["GENERALIZATION PARADIGMS"] --> WEAK["Weak Generalization<br/>(Transductive Matrix Completion)"]
+    ROOT --> STRONG["Strong Generalization<br/>(Inductive Cold-Start Adaptation)"]
+
+    WEAK --> WEAK_DESC["• All users present in training set<br/>• Random 20% ratings held out for test<br/>• Evaluates standard matrix completion<br/>• <b>Result: MAE = 0.3600, MAP = 0.7214</b>"]
+    STRONG --> STRONG_DESC["• Subset of users (10%) completely held out<br/>• Phase 1: Train base model on seen users<br/>• Phase 2: FREEZE item representations (W_V, Psi_2)<br/>• Phase 3: Optimize only new user parameters (W_U, Psi_1, Theta)<br/>• <b>Result: Fast convergence, zero item drift</b>"]
 ```
 
 - **Weak Generalization**: Standard collaborative filtering where user embeddings receive gradient updates throughout base training.

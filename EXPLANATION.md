@@ -113,10 +113,13 @@ Traditional CF methods (like SVD) use **matrix factorization** � they represen
 
 **Deep Learning (DL)** uses multi-layer neural networks to learn complex patterns from data.
 
-```
-Input -> [Hidden Layer 1] -> [Hidden Layer 2] -> ... -> [Hidden Layer N] -> Output
-           (non-linear          (more abstract
-            transformations)     features)
+```mermaid
+flowchart LR
+    IN["Input"] --> H1["Hidden Layer 1<br/>(non-linear transformations)"]
+    H1 --> H2["Hidden Layer 2<br/>(more abstract features)"]
+    H2 --> HDOTS["..."]
+    HDOTS --> HN["Hidden Layer N"]
+    HN --> OUT["Output"]
 ```
 
 ### Why DL for recommender systems?
@@ -133,20 +136,24 @@ Input -> [Hidden Layer 1] -> [Hidden Layer 2] -> ... -> [Hidden Layer N] -> Outp
 
 The model has **two stages** that are trained **separately**:
 
-```
-TRAINING STAGE
---------------
-  User ID --+
-            +-> [Embeddings] -> [DNN 1: Criteria] -> r1, r2...r7
-  Item ID --+
+```mermaid
+flowchart TD
+    subgraph TrainingStage ["TRAINING STAGE"]
+        direction TB
+        UID["User ID"] & IID["Item ID"] --> EMB["Embedding Layer"]
+        EMB --> DNN1["DNN 1: Criteria Ratings"]
+        DNN1 --> CRIT["r1, r2, ..., r7"]
+        CRIT --> NORM["Z-Score Normalization"]
+        NORM --> DNN2["DNN 2: Overall Rating"]
+        DNN2 --> R0["r0 (Overall Rating)"]
+    end
 
-  r1, r2...r7 -> [Normalize] -> [DNN 2: Overall] -> r0
-
-RECOMMENDATION STAGE
---------------------
-  Step (a): User ID + Item ID -> DNN 1 -> predicted r1..r7
-  Step (b): r1..r7 (normalized) -> DNN 2 -> predicted r0
-  Step (c): Rank all items by r0 -> Recommend top-K items
+    subgraph RecStage ["RECOMMENDATION STAGE"]
+        direction TB
+        INPUT_REC["User ID + Item ID (Candidates)"] --> STEP_A["Step (a): DNN 1 -> Predicted Criteria r1..r7"]
+        STEP_A --> STEP_B["Step (b): Normalize -> DNN 2 -> Predicted r0"]
+        STEP_B --> STEP_C["Step (c): Rank items by r0 -> Top-K Recommendation"]
+    end
 ```
 
 This matches the **aggregation-function-based approach** by Adomavicius et al.:
@@ -198,16 +205,15 @@ This combined vector x is the input to the first hidden layer.
 
 ### Architecture
 
-```
-Input: x = Concatenate(user_embedding, item_embedding)   -> 128 values
-
-  Hidden Layer 1:  128 -> 128  ->  ReLU
-  Hidden Layer 2:  128 ->  64  ->  ReLU
-  Hidden Layer 3:   64 ->  32  ->  ReLU
-  Hidden Layer 4:   32 ->  16  ->  ReLU
-  Hidden Layer 5:   16 ->   8  ->  ReLU
-
-Output Layer:        8 ->   7  ->  ReLU  (7 criteria ratings)
+```mermaid
+flowchart TD
+    IN["Input: x = Concatenate(user_embedding, item_embedding)<br/>(128 dimensions)"]
+    IN --> H1["Hidden Layer 1: 128 -> 128 (ReLU)"]
+    H1 --> H2["Hidden Layer 2: 128 -> 64 (ReLU)"]
+    H2 --> H3["Hidden Layer 3: 64 -> 32 (ReLU)"]
+    H3 --> H4["Hidden Layer 4: 32 -> 16 (ReLU)"]
+    H4 --> H5["Hidden Layer 5: 16 -> 8 (ReLU)"]
+    H5 --> OUT["Output Layer: 8 -> 7 (ReLU)<br/>(7 criteria ratings: r1..r7)"]
 ```
 
 ### What each layer does:
@@ -292,15 +298,14 @@ Never compute normalization statistics on test data. That would leak test inform
 
 ### Architecture
 
-```
-Input: z = [z1, z2, ..., z7]   (normalized criteria ratings, 7 values)
-
-  Hidden Layer 1:   7 -> 64  ->  ReLU
-  Hidden Layer 2:  64 -> 32  ->  ReLU
-  Hidden Layer 3:  32 -> 16  ->  ReLU
-  Hidden Layer 4:  16 ->  8  ->  ReLU
-
-Output Layer:       8 ->  1  ->  ReLU  (1 overall rating)
+```mermaid
+flowchart TD
+    IN["Input: z = [z1, z2, ..., z7]<br/>(7 normalized criteria values)"]
+    IN --> H1["Hidden Layer 1: 7 -> 64 (ReLU)"]
+    H1 --> H2["Hidden Layer 2: 64 -> 32 (ReLU)"]
+    H2 --> H3["Hidden Layer 3: 32 -> 16 (ReLU)"]
+    H3 --> H4["Hidden Layer 4: 16 -> 8 (ReLU)"]
+    H4 --> OUT["Output Layer: 8 -> 1 (ReLU)<br/>(1 overall rating: r0)"]
 ```
 
 ### What it learns:
@@ -568,16 +573,14 @@ Assignment-1/
 ```
 
 ### Data flow:
-```
-prepare_data.py  ->  tripadvisor.csv
-                         |
-data_loader.py   ->  encoded DataFrames (user/item IDs as 0-indexed integers)
-                         |
-main.py          ->  K-Fold splits -> training arrays
-                         |
-models.py        ->  CriteriaRatingsDNN, OverallRatingDNN (architecture)
-                         |
-trainer.py       ->  train() -> evaluate() -> print results
+```mermaid
+flowchart TD
+    P1["prepare_data.py"] -->|"Generates / converts"| D1["tripadvisor.csv"]
+    D1 --> P2["data_loader.py"]
+    P2 -->|"Encoded DataFrames<br/>(0-indexed user/item IDs)"| P3["main.py"]
+    P3 -->|"K-Fold splits & training arrays"| P5["trainer.py"]
+    P4["models.py"] -->|"CriteriaRatingsDNN & OverallRatingDNN<br/>(or Deep MMMF architectures)"| P5
+    P5 -->|"train() -> evaluate()"| OUT["Evaluation Results<br/>(MAE, NMAE, MAP, FCP, MRR, F1)"]
 ```
 
 ---
@@ -698,4 +701,5 @@ The paper mentions this model CAN be extended to handle cold-start by adding con
 The dataset is split into 5 equal parts (folds).
 In each round, 4 folds are used for training and 1 fold for testing.
 This is repeated 5 times (each fold gets to be the test set once).
-Final results = average of all 5 rounds -> more reliable than a single train/test split.
+Final results = average of all 5 rounds -> more reliable than a single train/test split.
+
